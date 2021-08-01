@@ -1,6 +1,7 @@
 #include <Servo.h>
 #include <MPU9250_WE.h>
 
+// all the pins which plug into the Arduino Nano
 #define pitchPin 3
 #define yawPin 4
 #define rollPin 2
@@ -8,11 +9,26 @@
 #define joystickYPin A2
 #define joystickClickPin 5
 
+// the sensor which gives us gyroscopic data 
 MPU9250_WE myMPU9250 = MPU9250_WE();
+// the three servos which control the orientation of the phone
 Servo pitchServo;
 Servo yawServo;
 Servo rollServo;
 
+//preconfigured limits 
+int maxPitch = 135;
+int minPitch = 45;
+int minYaw = 0;
+int maxYaw = 180;
+int minRoll = 45;
+int maxRoll = 135;
+float lastRoll, lastPitch, lastYaw; 
+float rollSmoothness = 0.1;
+float pitchSmoothness = 0.25;
+float sensorJitter = 2; 
+
+//runtime variables 
 float targetPitch = 90;
 float targetYaw = 90;
 float targetRoll = 90; 
@@ -21,24 +37,12 @@ float currentPitch = 90;
 float currentYaw = 90;
 bool is3Axis = false; 
 
-int maxPitch = 135;
-int minPitch = 45;
-int minYaw = 0;
-int maxYaw = 180;
-int minRoll = 45;
-int maxRoll = 135;
-
 int deadzone = 32;
 int status;
-
-float lastRoll, lastPitch, lastYaw; 
-float rollSmoothness = 1;
-float pitchSmoothness = 1;
-
 float lastX, lastY; 
-float sensorJitter = 1; 
+
 void setup() {
-  // put your setup code here, to run once:
+  // start communicating with the servos
   
   pitchServo.attach(pitchPin);
   yawServo.attach(yawPin);
@@ -49,7 +53,7 @@ void setup() {
   rollServo.write(targetRoll);
   
   Serial.begin(115200);
-
+  // start communicating with the sensor
   Wire.begin();
   if(!myMPU9250.init()){
     Serial.println("MPU9250 does not respond");
@@ -62,7 +66,7 @@ void setup() {
   delay(2500);
   myMPU9250.autoOffsets();
   Serial.println("Done!");
-  
+  //configure sensor to be smoother 
   myMPU9250.setSampleRateDivider(5);
   myMPU9250.setAccRange(MPU9250_ACC_RANGE_2G);
   myMPU9250.enableAccDLPF(true);
@@ -70,10 +74,11 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  // read values from joystick
   int y = analogRead(joystickXPin);
   int x = analogRead(joystickYPin);
 
+  //account for joystick deadzones; adjust target angles based on joystick input 
   if (x > 512 + deadzone || x < 512 - deadzone) {
     targetYaw -= ((float)(x) - 512.0) / 100.0; 
     if (targetYaw > maxYaw) targetYaw = maxYaw;
@@ -88,17 +93,14 @@ void loop() {
     delay(5);
   }
 
-/*
-  pitchServo.write(targetPitch);
-  rollServo.write(targetRoll); */
+
   yawServo.write(targetYaw);
 
 
-  
+  // read sensor data 
   xyzFloat angles = myMPU9250.getAngles();
   
-/* This method provides quite precise values for x/y 
-   angles up 60°. */
+  // log sensor data 
   Serial.print("Angle x = ");
   Serial.print(angles.x);
   Serial.print("  |  Angle y = ");
@@ -106,8 +108,6 @@ void loop() {
   Serial.print("  |  Angle z = ");
   Serial.println(angles.z);
 
-/* Pitch and roll consider all axes for calculation. According to my experience
-   it provides more reliable results at higher angles (>60°) */
   float pitch = myMPU9250.getPitch();
   float roll  = myMPU9250.getRoll();
 
@@ -120,18 +120,19 @@ void loop() {
   
   Serial.println();
   
-
+  // account for sensor jitter
   if (abs((float)angles.x - lastX) > sensorJitter) lastX = angles.x;
   if (abs((float)angles.y - lastY) > sensorJitter) lastY = angles.y; 
 
-  
+  // perform smoothness calculations 
   float newRoll = lastX + targetRoll;
   float newPitch = lastY*-1 + targetPitch;
   if (newRoll - lastRoll > rollSmoothness) newRoll = lastRoll + rollSmoothness;
   if (newRoll - lastRoll < -rollSmoothness) newRoll = lastRoll - rollSmoothness;
   if (newPitch - lastPitch > pitchSmoothness) newPitch = lastPitch + pitchSmoothness;
   if (newPitch - lastPitch < -pitchSmoothness) newPitch = lastPitch - pitchSmoothness; 
-  
+
+  // write new angles for servos
   rollServo.write(newRoll);
   pitchServo.write(newPitch);
   lastRoll = newRoll;
